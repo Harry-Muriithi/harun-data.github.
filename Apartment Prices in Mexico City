@@ -1,0 +1,383 @@
+ Predicting Apartment Prices in Mexico City 
+
+import warnings
+​
+
+​
+warnings.simplefilter(action="ignore", category=FutureWarning)
+wqet_grader.init("Project 2 Assessment")
+In this assignment, you'll decide which libraries you need to complete the tasks. You can import them in the cell below. 👇
+
+import warnings
+from glob import glob
+import plotly.express as px
+​
+import pandas as pd
+import seaborn as sns
+import wqet_grader
+from category_encoders import OneHotEncoder
+from IPython.display import VimeoVideo
+from ipywidgets import Dropdown, FloatSlider, IntSlider, interact
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LinearRegression, Ridge  # noqa F401
+from sklearn.metrics import mean_absolute_error
+from sklearn.pipeline import make_pipeline
+from sklearn.utils.validation import check_is_fitted
+​
+
+Task 2.5.1: Write a wrangle function that takes the name of a CSV file as input and returns a DataFrame. The function should do the following steps:
+
+Subset the data in the CSV file and return only apartments in Mexico City ("Distrito Federal") that cost less than $100,000.
+Remove outliers by trimming the bottom and top 10% of properties in terms of "surface_covered_in_m2".
+Create separate "lat" and "lon" columns.
+Mexico City is divided into 15 boroughs. Create a "borough" feature from the "place_with_parent_names" column.
+Drop columns that are more than 50% null values.
+Drop columns containing low- or high-cardinality categorical values.
+Drop any columns that would constitute leakage for the target "price_aprox_usd".
+Drop any columns that would create issues of multicollinearity.
+Tip: Don't try to satisfy all the criteria in the first version of your wrangle function. Instead, work iteratively. Start with the first criteria, test it out with one of the Mexico CSV files in the data/ directory, and submit it to the grader for feedback. Then add the next criteria.
+import pandas as pd
+​
+def wrangle(filepath):
+    # Read CSV into a DataFrame
+    df = pd.read_csv(filepath)
+    print("Initial shape:", df.shape)
+​
+    # Subset to properties in "Distrito Federal"
+    mask_ba = df["place_with_parent_names"].str.contains("Distrito Federal", na=False)
+    # Subset to properties of type "apartment"
+    mask_apt = df["property_type"].str.lower() == "apartment"
+    # Subset to properties with price_aprox_usd < 100,000
+    mask_price = df["price_aprox_usd"] < 100_000
+    df = df[mask_ba & mask_apt & mask_price]
+    print("Shape after filtering Distrito Federal, apartments, and price:", df.shape)
+​
+    # Subset data: Remove outliers for "surface_covered_in_m2"
+    if "surface_covered_in_m2" in df.columns:
+        low, high = df["surface_covered_in_m2"].quantile([0.1, 0.9])
+        mask_area = df["surface_covered_in_m2"].between(low, high)
+        df = df[mask_area]
+        print("Shape after removing outliers:", df.shape)
+​
+    # Split 'lat-lon' into 'lat' and 'lon' and convert to float
+    if "lat-lon" in df.columns:
+        df[["lat", "lon"]] = df["lat-lon"].str.split(",", expand=True).astype(float)
+        df.drop(columns="lat-lon", inplace=True)
+​
+    # Extract the 'borough' feature from the 'place_with_parent_names' column
+    df["borough"] = (
+        df["place_with_parent_names"]
+        .str.split("|", expand=True)[1]  # Extract the second segment (index 1) as borough
+    )
+​
+    # Drop the 'place_with_parent_names' column
+    df.drop(columns=["place_with_parent_names"], inplace=True)
+​
+    # Drop features with high null counts
+    drop_high_nulls = ["surface_total_in_m2", "price_usd_per_m2", "floor", "rooms", "expenses"]
+    df.drop(columns=[col for col in drop_high_nulls if col in df.columns], inplace=True)
+​
+    # Drop low and high cardinality features if they exist
+    drop_cols = ["operation", "property_type", "currency", "properati_url"]
+    df.drop(columns=[col for col in drop_cols if col in df.columns], inplace=True)
+​
+    # Drop leaky columns if they exist
+    drop_leaky_cols = ["price", "price_aprox_local_currency", "price_per_m2"]
+    df.drop(columns=[col for col in drop_leaky_cols if col in df.columns], inplace=True)
+​
+    return df
+​
+​
+​
+​
+# Use this cell to test your wrangle function and explore the data
+df = wrangle("data/mexico-city-real-estate-1.csv")
+print("df shape:", df.shape)
+df.head()
+Initial shape: (4628, 16)
+Shape after filtering Distrito Federal, apartments, and price: (1405, 16)
+Shape after removing outliers: (1101, 16)
+df shape: (1101, 5)
+price_aprox_usd	surface_covered_in_m2	lat	lon	borough
+11	94022.66	57.0	23.634501	-102.552788	Benito Juárez
+20	70880.12	56.0	19.402413	-99.095391	Iztacalco
+21	68228.99	80.0	19.357820	-99.149406	Benito Juárez
+22	24235.78	60.0	19.504985	-99.208557	Azcapotzalco
+26	94140.20	50.0	19.354219	-99.126244	Coyoacán
+​
+
+)
+Initial shape: (4628, 16)
+Shape after filtering Distrito Federal, apartments, and price: (1405, 16)
+Shape after removing outliers: (1101, 16)
+
+
+Task 2.5.2: Use glob to create the list files. It should contain the filenames of all the Mexico City real estate CSVs in the ./data directory, except for mexico-city-test-features.csv.
+
+files=glob("data/mexico-city-real-estate-*.csv")
+files
+['data/mexico-city-real-estate-1.csv',
+ 'data/mexico-city-real-estate-2.csv',
+ 'data/mexico-city-real-estate-4.csv',
+ 'data/mexico-city-real-estate-5.csv',
+ 'data/mexico-city-real-estate-3.csv']
+wqet_grader.grade("Project 2 Assessment", "Task 2.5.2", files)
+
+
+Task 2.5.3: Combine your wrangle function, a list comprehension, and pd.concat to create a DataFrame df. It should contain all the properties from the five CSVs in files.
+
+frames =[wrangle(file)for file in files]
+df = pd.concat(frames, ignore_index=True)
+print(df.info())
+df.head()
+Initial shape: (4628, 16)
+Shape after filtering Distrito Federal, apartments, and price: (1405, 16)
+Shape after removing outliers: (1101, 16)
+Initial shape: (4628, 16)
+Shape after filtering Distrito Federal, apartments, and price: (1397, 16)
+Shape after removing outliers: (1100, 16)
+Initial shape: (4628, 16)
+Shape after filtering Distrito Federal, apartments, and price: (1411, 16)
+Shape after removing outliers: (1116, 16)
+Initial shape: (4628, 16)
+Shape after filtering Distrito Federal, apartments, and price: (1360, 16)
+Shape after removing outliers: (1056, 16)
+Initial shape: (4628, 16)
+Shape after filtering Distrito Federal, apartments, and price: (1420, 16)
+Shape after removing outliers: (1100, 16)
+<class 'pandas.core.frame.DataFrame'>
+RangeIndex: 5473 entries, 0 to 5472
+Data columns (total 5 columns):
+ #   Column                 Non-Null Count  Dtype  
+---  ------                 --------------  -----  
+ 0   price_aprox_usd        5473 non-null   float64
+ 1   surface_covered_in_m2  5473 non-null   float64
+ 2   lat                    5149 non-null   float64
+ 3   lon                    5149 non-null   float64
+ 4   borough                5473 non-null   object 
+dtypes: float64(4), object(1)
+memory usage: 213.9+ KB
+None
+price_aprox_usd	surface_covered_in_m2	lat	lon	borough
+0	94022.66	57.0	23.634501	-102.552788	Benito Juárez
+1	70880.12	56.0	19.402413	-99.095391	Iztacalco
+2	68228.99	80.0	19.357820	-99.149406	Benito Juárez
+3	24235.78	60.0	19.504985	-99.208557	Azcapotzalco
+4	94140.20	50.0	19.354219	-99.126244	Coyoacán
+​
+
+
+Explore
+Task 2.5.4: Create a histogram showing the distribution of apartment prices ("price_aprox_usd") in df. Be sure to label the x-axis "Price [$]", the y-axis "Count", and give it the title "Distribution of Apartment Prices". Use Matplotlib (plt).
+
+What does the distribution of price look like? Is the data normal, a little skewed, or very skewed?
+
+import matplotlib.pyplot as plt
+​
+# Build histogram with a transparent color
+plt.hist(df["price_aprox_usd"], bins=30, color="blue", edgecolor="black", alpha=0.7)
+plt.hist(df["price_aprox_usd"], bins=30, color="red", edgecolor="black", alpha=0.3)  # Overlay with transparency
+​
+# Label axes
+plt.xlabel("Price [$]")
+plt.ylabel("Count")
+​
+# Add title
+plt.title("Distribution of Apartment Prices")
+​
+# Save the figure
+plt.savefig("images/2-5-4.png", dpi=150)
+plt.show()
+​
+
+
+
+
+Task 2.5.5: Create a scatter plot that shows apartment price ("price_aprox_usd") as a function of apartment size ("surface_covered_in_m2"). Be sure to label your x-axis "Area [sq meters]" and y-axis "Price [USD]". Your plot should have the title "Mexico City: Price vs. Area". Use Matplotlib (plt).
+
+# Create scatter plot
+plt.scatter(x=df["surface_covered_in_m2"], y=df["price_aprox_usd"])
+plt.xlabel("Area [sq meters]")
+plt.ylabel("Price [USD]")
+plt.title("Mexico City: Price vs Area")
+​
+# Save the plot to the images directory
+plt.savefig("images/2-5-5.png", dpi=150)
+
+Do you see a relationship between price and area in the data? How is this similar to or different from the Buenos Aires dataset?WQU WorldQuant University Applied Data Science Lab QQQQ
+
+Task 2.5.6: (UNGRADED) Create a Mapbox scatter plot that shows the location of the apartments in your dataset and represent their price using color.
+
+What areas of the city seem to have higher real estate prices?
+
+# Plot Mapbox location and price
+fig = fig = px.scatter_mapbox(
+    df,  # Our DataFrame
+    lat= "lat",
+    lon= "lon",
+    width=600,  # Width of map
+    height=600,  # Height of map
+    color= "price_aprox_usd",
+    hover_data=["price_aprox_usd"],  # Display price when hovering mouse over house
+)
+​
+fig.update_layout(mapbox_style="open-street-map")
+​
+fig.show()
+​
+​
+​
+
+Split
+Task 2.5.7: Create your feature matrix X_train and target vector y_train. Your target is "price_aprox_usd". Your features should be all the columns that remain in the DataFrame you cleaned above.
+
+# Split data into feature matrix `X_train` and target vector `y_train`.
+target = "price_aprox_usd"
+feature = ["surface_covered_in_m2","lat", "lon", "borough"] 
+y_train = df[target]  
+X_train = df[feature]
+​
+wqet_grader.grade("Project 2 Assessment", "Task 2.5.7a", X_train)
+That's the right answer. Keep it up!
+
+Score: 1
+
+​
+
+Build Model
+Baseline
+Task 2.5.8: Calculate the baseline mean absolute error for your model.
+
+# Calculate the mean of the target variable
+y_mean = y_train.mean()
+​
+# Create baseline predictions (constant predictions using the mean of the target)
+y_pred_baseline = [y_mean] * len(y_train)
+​
+# Print the mean apartment price
+print("Mean apt price:", round(y_mean, 2))
+​
+# Calculate the Baseline MAE
+baseline_mae = mean_absolute_error(y_train, y_pred_baseline)
+​
+# Print the Baseline MAE
+print("Baseline MAE:", baseline_mae)
+​
+Mean apt price: 54246.53
+Baseline MAE: 17239.939475888295
+
+
+Iterate
+Task 2.5.9: Create a pipeline named model that contains all the transformers necessary for this dataset and one of the predictors you've used during this project. Then fit your model to the training data.
+
+# Build Model
+model = make_pipeline(OneHotEncoder(use_cat_names=True),
+                              SimpleImputer(), 
+                              Ridge())
+model.fit(X_train, y_train)
+​
+​
+Pipeline(steps=[('onehotencoder',
+                 OneHotEncoder(cols=['borough'], use_cat_names=True)),
+                ('simpleimputer', SimpleImputer()), ('ridge', Ridge())])
+In a Jupyter environment, please rerun this cell to show the HTML representation or trust the notebook.
+On GitHub, the HTML representation is unable to render, please try loading this page with nbviewer.org.
+​
+
+
+Evaluate
+Task 2.5.10: Read the CSV file mexico-city-test-features.csv into the DataFrame X_test.
+
+Tip: Make sure the X_train you used to train your model has the same column order as X_test. Otherwise, it may hurt your model's performance.
+y_pred_training = model.predict(X_train)
+​
+# Print the training MAE
+print("Training MAE:", mean_absolute_error(y_train, y_pred_training))
+​
+X_test = pd.read_csv("data/mexico-city-test-features.csv")
+y_pred_test = pd.Series(model.predict(X_test))
+y_pred_test.head()
+Training MAE: 14943.165824063915
+0    53538.366480
+1    53171.988369
+2    34263.884179
+3    53488.425607
+4    68738.924884
+dtype: float64
+​
+wqet_grader.grade("Project 2 Assessment", "Task 2.5.10", X_test)
+Yes! Keep on rockin'. 🎸That's right.
+
+Score: 1
+
+Task 2.5.11: Use your model to generate a Series of predictions for X_test. When you submit your predictions to the grader, it will calculate the mean absolute error for your model.
+
+y_test_pred =pd.Series(model.predict(X_test))
+y_test_pred.head()
+0    53538.366480
+1    53171.988369
+2    34263.884179
+3    53488.425607
+4    68738.924884
+dtype: float64
+wqet_grader.grade("Project 2 Assessment", "Task 2.5.11", y_test_pred)
+Your model's mean absolute error is 14901.618. Awesome work.
+
+
+Task 2.5.12: Create a Series named feat_imp. The index should contain the names of all the features your model considers when making predictions; the values should be the coefficient values associated with each feature. The Series should be sorted ascending by absolute value.
+
+​
+# Assuming `model` is your trained pipeline model
+​
+# Extract the named steps
+encoder = model.named_steps['onehotencoder']
+ridge = model.named_steps['ridge']
+​
+# Get the feature names after one-hot encoding
+encoded_feature_names = encoder.get_feature_names_out(input_features=feature)
+​
+# Extract the coefficients from the trained Ridge model
+coefficients = ridge.coef_
+​
+# Create a Pandas Series with encoded feature names as index and coefficients as values
+feat_imp = pd.Series(coefficients, index=encoded_feature_names)
+​
+# Sort the Series by absolute value of the coefficients
+feat_imp = feat_imp.reindex(feat_imp.abs().sort_values().index)
+​
+print(feat_imp)
+​
+surface_covered_in_m2               291.654156
+borough_Cuauhtémoc                 -350.531990
+borough_Iztacalco                   405.403127
+lat                                 478.901375
+borough_Xochimilco                  929.857400
+borough_Miguel Hidalgo             1977.314718
+borough_Azcapotzalco               2459.288646
+lon                               -2492.221814
+borough_Álvaro Obregón             3275.121061
+borough_Coyoacán                   3737.561001
+borough_Venustiano Carranza       -5609.918629
+borough_La Magdalena Contreras    -5925.666450
+borough_Gustavo A. Madero         -6637.429757
+borough_Cuajimalpa de Morelos      9157.269123
+borough_Tlalpan                   10319.429804
+borough_Iztapalapa               -13349.017448
+borough_Benito Juárez             13778.188880
+borough_Tláhuac                  -14166.869486
+dtype: float64
+​
+
+
+Task 2.5.13: Create a horizontal bar chart that shows the 10 most influential coefficients for your model. Be sure to label your x- and y-axis "Importance [USD]" and "Feature", respectively, and give your chart the title "Feature Importances for Apartment Price". Use pandas.
+
+ #Sorting feature importances by absolute value and plotting
+feat_imp.sort_values(key=lambda x: abs(x)).tail(10).plot(kind="barh")
+​
+# Adding labels and title
+plt.xlabel("Importance [USD]")
+plt.ylabel("Features")
+plt.title("Feature Importance for Apartment Price")
+​
+# Don't delete the code below 👇
+plt.savefig("images/2-5-13.png", dpi=150)
